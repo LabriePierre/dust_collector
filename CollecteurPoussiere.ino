@@ -54,11 +54,11 @@ boolean powerDetected[NOMBRE_OUTILS] = {0, 0, 0};
 boolean collectorIsOn = 0;
 
 //Temporisation du collecteur de poussiere
-int DC_spindown = 50;
-int DC_spinUP = 10;
+int DC_spindown = 5000;
+int DC_spinUP = 1000;
 
 // niveau de démarrage de l'outil
-double ampThreshold = 0.80;
+double ampThreshold = 2.50;
 
 // Creer les instances du moniteur de courant EnergyMonitor
 EnergyMonitor emon0;
@@ -261,10 +261,10 @@ boolean checkForAmperageChange(int outil) {
   }
 
   // pour debug
-  //      Serial.print("outil: ");
-  //      Serial.println(outil);
-  //      Serial.print(Irms);
-  //      Serial.println(" Amps RMS");
+//        Serial.print("outil: ");
+//        Serial.println(outil);
+//        Serial.print(Irms);
+//        Serial.println(" Amps RMS");
 
 
   // si le courant dépasse le niveau minimum, retourne vrai
