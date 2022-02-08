@@ -31,8 +31,6 @@
 #define  LED_PIN_CLK  2    // CLK pin  pour LED GND
 #define  LED_PIN_DIO  3    // DIO pin  pour LED GND
 
-// module LED 7 segments
-TM1637   tm(LED_PIN_CLK, LED_PIN_DIO);
 
 // Nombre d'outils monitorés
 const int NOMBRE_OUTILS = 3;
@@ -54,11 +52,14 @@ boolean powerDetected[NOMBRE_OUTILS] = {0, 0, 0};
 boolean collectorIsOn = 0;
 
 //Temporisation du collecteur de poussiere
-int DC_spindown = 5000;
+int DC_spindown = 4000;
 int DC_spinUP = 1000;
 
 // niveau de démarrage de l'outil
 double ampThreshold = 2.50;
+
+// instance du module LED 7 segments
+TM1637   tm(LED_PIN_CLK, LED_PIN_DIO);
 
 // Creer les instances du moniteur de courant EnergyMonitor
 EnergyMonitor emon0;
@@ -77,8 +78,6 @@ void setup() {
   digitalWrite(DC_RELAIS, LOW);
   digitalWrite(LED_BUILTIN, LOW);
 
-
-
   //pins du sélecteur binaire
   pinMode(SELECT_0, INPUT_PULLUP);
   pinMode(SELECT_1, INPUT_PULLUP);
@@ -93,15 +92,15 @@ void setup() {
   while (!Serial) ; // attente de l'ouverture du port série Arduino
 
   //  remise à zéro du compteur pour montage initial
-  //  writeLongIntoEEPROM(100, minutesTotales[0]);
-  //  writeLongIntoEEPROM(200, minutesTotales[0]);
-  //  writeLongIntoEEPROM(300, minutesTotales[0]);
+  //  ecritDansEEPROM(100, minutesTotales[0]);
+  //  ecritDansEEPROM(200, minutesTotales[0]);
+  //  ecritDansEEPROM(300, minutesTotales[0]);
 
   // lecture du dernier état avant une panne électrique
   // réinistalise les variables globales
-  minutesTotales[0] = readLongFromEEPROM(100);
-  minutesTotales[1] = readLongFromEEPROM(200);
-  minutesTotales[2] = readLongFromEEPROM(300);
+  minutesTotales[0] = lectureDeEEPROM(100);
+  minutesTotales[1] = lectureDeEEPROM(200);
+  minutesTotales[2] = lectureDeEEPROM(300);
 
 
   // configuration Emon pour module Hall ACS712ELC-20A 8.3
@@ -118,7 +117,7 @@ void loop() {
   bool activeTool[NOMBRE_OUTILS] = {0, 0, 0};
 
   for (int i = 0; i < NOMBRE_OUTILS; i++) {
-    if (checkForAmperageChange(i)) {
+    if (verifieChangeCourant(i)) {
       activeTool[i] = true;
 
       if (powerDetected[i]  == false) {
@@ -134,14 +133,14 @@ void loop() {
 
     if (collectorIsOn == false) {
       delay(DC_spinUP);
-      turnOnDustCollection();
+      ouvreCollecteurPoussiere();
     }
   }
   else
   {
     if (collectorIsOn == true) {
       delay(DC_spindown);
-      turnOffDustCollection();
+      fermeCollecteurPoussiere();
     }
   }
 
@@ -238,22 +237,23 @@ void displayNumber(long numNouv) {
 
 // Vérification du passage de courant dans le module Hall
 // Vérifie un des trois outils prévus
-boolean checkForAmperageChange(int outil) {
+// méthode privée
+boolean _verifieChangeCourant(int outil) {
 
   double Irms = 0;
   // Calculer Irms seulement
   switch (outil) {
 
     case 0:
-      Irms = emon0.calcIrms(2960);
+      Irms = emon0.calcIrms(930); // basé sur 10 échantillons
       break;
 
     case 1:
-      Irms = emon1.calcIrms(2960);
+      Irms = emon1.calcIrms(930);
       break;
 
     case 2:
-      Irms = emon2.calcIrms(2960);
+      Irms = emon2.calcIrms(930);
       break;
 
     default:
@@ -275,17 +275,40 @@ boolean checkForAmperageChange(int outil) {
   }
 }
 
+// Vérification du passage de courant dans le module Hall
+// méthode publique
+// Assure un réél démarrage pour éviter les interférences des connecteurs (debounce)
+boolean verifieChangeCourant(int outil) {
+int intDelay = 10;
+
+  bool blnBtn_A = _verifieChangeCourant(outil);
+  delay (intDelay);
+  
+  bool blnBtn_B  = _verifieChangeCourant(outil);
+
+  if (blnBtn_A == blnBtn_B)
+  {
+    delay( intDelay);
+    bool blnBtn_C  = _verifieChangeCourant(outil);
+    if (blnBtn_A == blnBtn_C)
+      return blnBtn_A;
+  }
+
+  return false;
+}
+
+
 //Ouvre aspirateur
-void turnOnDustCollection() {
-  Serial.println("turnOnDustCollection");
+void ouvreCollecteurPoussiere() {
+  Serial.println("ouvreCollecteurPoussiere");
   digitalWrite(DC_RELAIS, HIGH);
   digitalWrite(LED_BUILTIN, HIGH);
   collectorIsOn = true;
 }
 
 //Ferme aspirateur
-void turnOffDustCollection() {
-  Serial.println("turnOffDustCollection");
+void fermeCollecteurPoussiere() {
+  Serial.println("fermeCollecteurPoussiere");
   digitalWrite(DC_RELAIS, LOW);
   digitalWrite(LED_BUILTIN, LOW);
   collectorIsOn = false;
@@ -328,15 +351,15 @@ void cumulTempsOutil(int outil)
 
       switch (outil) {
         case 0:
-          writeLongIntoEEPROM(100, minutesTotales[outil]);;
+          ecritDansEEPROM(100, minutesTotales[outil]);;
           break;
 
         case 1:
-          writeLongIntoEEPROM(200, minutesTotales[outil]);;
+          ecritDansEEPROM(200, minutesTotales[outil]);;
           break;
 
         case 2:
-          writeLongIntoEEPROM(300, minutesTotales[outil]);;
+          ecritDansEEPROM(300, minutesTotales[outil]);;
           break;
       }
 
@@ -346,7 +369,7 @@ void cumulTempsOutil(int outil)
 }
 
 //Écriture en mémoire du total d'heures cumulées
-void writeLongIntoEEPROM(int address, long number)
+void ecritDansEEPROM(int address, long number)
 {
   EEPROM.write(address, (number >> 24) & 0xFF);
   EEPROM.write(address + 1, (number >> 16) & 0xFF);
@@ -357,7 +380,7 @@ void writeLongIntoEEPROM(int address, long number)
 
 
 //Lecture de la mémoire du total d'heures cumulées
-long readLongFromEEPROM(int address)
+long lectureDeEEPROM(int address)
 {
   return ((long)EEPROM.read(address) << 24) +
          ((long)EEPROM.read(address + 1) << 16) +
@@ -400,7 +423,7 @@ void lumieresTemoins(bool bouton, int outil)
         digitalWrite(AFFICHE_1, HIGH);
       }
       else
-      { //digitalWrite(AFFICHE_1, LOW);
+      { digitalWrite(AFFICHE_1, LOW);
       }
       break;
 
