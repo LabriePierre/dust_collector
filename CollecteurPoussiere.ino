@@ -75,7 +75,7 @@ void setup() {
   pinMode(AFFICHE_1, OUTPUT);
   pinMode(AFFICHE_2, OUTPUT);
 
-  digitalWrite(DC_RELAIS, LOW);
+  digitalWrite(DC_RELAIS, HIGH);
   digitalWrite(LED_BUILTIN, LOW);
 
   //pins du sélecteur binaire
@@ -97,42 +97,46 @@ void setup() {
   //  ecritDansEEPROM(300, minutesTotales[0]);
 
   // lecture du dernier état avant une panne électrique
-  // réinistalise les variables globales
+  // réinitialise les variables globales
   minutesTotales[0] = lectureDeEEPROM(100);
   minutesTotales[1] = lectureDeEEPROM(200);
   minutesTotales[2] = lectureDeEEPROM(300);
 
 
-  // configuration Emon pour module Hall ACS712ELC-20A 8.3
-  // configuration Emon pour module Hall SCT 013-30 111.1
-  emon0.current(PIN_LECTURE_0, 60);             // Current: input pin, calibration.
+
+  // configuration Emon pour module Hall SCT 013-30
+  // Current: input pin, calibration.
+  emon0.current(PIN_LECTURE_0, 60);             
   emon1.current(PIN_LECTURE_1, 60);
   emon2.current(PIN_LECTURE_2, 60);
+
+  // pour stabilisation du voltage
+  delay(5000);
 }
 
 void loop() {
 
 
   //verifie le fonctionnement de tous les outils
-  bool activeTool[NOMBRE_OUTILS] = {0, 0, 0};
+  bool outilActif[NOMBRE_OUTILS] = {0, 0, 0};
 
   for (int i = 0; i < NOMBRE_OUTILS; i++) {
     if (verifieChangeCourant(i)) {
-      activeTool[i] = true;
+      outilActif[i] = true;
 
       if (powerDetected[i]  == false) {
         tempsEcoule[i] = millis();
       }
       powerDetected[i]  = true;
-      lumieresTemoins(true,i);
+      lumieresTemoins(true, i);
     }
   }
 
   //démarre l'aspirateur selon l'état de n'importe quel outil.
-  if (activeTool[0] || activeTool[1] || activeTool[2] ) {
+  if (outilActif[0] || outilActif[1] || outilActif[2] ) {
 
     if (collectorIsOn == false) {
-      delay(DC_spinUP);
+      delay(DC_spinUP);  
       ouvreCollecteurPoussiere();
     }
   }
@@ -147,11 +151,11 @@ void loop() {
   //calcul du temps écoulé par outil et cumule les minutes totales dans le registre
   for (int i = 0; i < NOMBRE_OUTILS; i++) {
 
-    if (powerDetected[i] == true && activeTool[i] == false ) {
+    if (powerDetected[i] == true && outilActif[i] == false ) {
 
       calculTempsOutil(i);
       powerDetected[i] = false;
-      lumieresTemoins(false,i);
+      lumieresTemoins(false, i);
       cumulTempsOutil(i);
     }
   }
@@ -261,10 +265,10 @@ boolean _verifieChangeCourant(int outil) {
   }
 
   // pour debug
-//        Serial.print("outil: ");
-//        Serial.println(outil);
-//        Serial.print(Irms);
-//        Serial.println(" Amps RMS");
+  //        Serial.print("outil: ");
+  //        Serial.println(outil);
+  //        Serial.print(Irms);
+  //        Serial.println(" Amps RMS");
 
 
   // si le courant dépasse le niveau minimum, retourne vrai
@@ -279,11 +283,11 @@ boolean _verifieChangeCourant(int outil) {
 // méthode publique
 // Assure un réél démarrage pour éviter les interférences des connecteurs (debounce)
 boolean verifieChangeCourant(int outil) {
-int intDelay = 10;
+  int intDelay = 10;
 
   bool blnBtn_A = _verifieChangeCourant(outil);
   delay (intDelay);
-  
+
   bool blnBtn_B  = _verifieChangeCourant(outil);
 
   if (blnBtn_A == blnBtn_B)
@@ -301,7 +305,7 @@ int intDelay = 10;
 //Ouvre aspirateur
 void ouvreCollecteurPoussiere() {
   Serial.println("ouvreCollecteurPoussiere");
-  digitalWrite(DC_RELAIS, HIGH);
+  digitalWrite(DC_RELAIS, LOW);
   digitalWrite(LED_BUILTIN, HIGH);
   collectorIsOn = true;
 }
@@ -309,7 +313,7 @@ void ouvreCollecteurPoussiere() {
 //Ferme aspirateur
 void fermeCollecteurPoussiere() {
   Serial.println("fermeCollecteurPoussiere");
-  digitalWrite(DC_RELAIS, LOW);
+  digitalWrite(DC_RELAIS, HIGH);
   digitalWrite(LED_BUILTIN, LOW);
   collectorIsOn = false;
 }
@@ -417,7 +421,7 @@ void lumieresTemoins(bool bouton, int outil)
       { digitalWrite(AFFICHE_0, LOW);
       }
       break;
-      
+
     case 1:
       if (bouton) {
         digitalWrite(AFFICHE_1, HIGH);
