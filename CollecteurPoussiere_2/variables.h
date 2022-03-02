@@ -1,5 +1,6 @@
 // variables globales et librairies
 
+// EmonLibrary examples openenergymonitor.org, Licence GNU GPL V3
 #include "EmonLib.h"      // librairie pour  Emon
 #include <TM1637.h>       // librairie pour TM1637 affichage LED 7 segments
 #include <EEPROM.h>       // librairie pour enregistrement dans EEPROM

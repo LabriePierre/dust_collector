@@ -2,8 +2,6 @@
 // Cumule les nombre d'heure de fonctionnement de chaque appareil.
 
 // Pierre Labrie, 2022/01/28, Licence GNU GPL V3
-// EmonLibrary examples openenergymonitor.org, Licence GNU GPL V3
-
 
 #include "variables.h"      // librairie pour  Emon
 
@@ -34,7 +32,7 @@ void setup() {
 
   tm.init();              // initialise l'affichage LED 7 segments
   tm.set(2);              // ajuste la luminosité (1 à 7)
-  afficheNombre(8888);    // AFFICHE[] 8888 pour validation de tous les segments
+  afficheNombre(8888);    // Affiche 8888 pour validation de tous les segments
 
 
   Serial.begin(9600);
