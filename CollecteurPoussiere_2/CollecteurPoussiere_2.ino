@@ -4,78 +4,9 @@
 // Pierre Labrie, 2022/01/28, Licence GNU GPL V3
 // EmonLibrary examples openenergymonitor.org, Licence GNU GPL V3
 
-#include "EmonLib.h"      // librairie pour  Emon
-#include <TM1637.h>       // librairie pour TM1637 affichage LED 7 segments
-#include <EEPROM.h>       // librairie pour enregistrement dans EEPROM
 
+#include "variables.h"      // librairie pour  Emon
 
-// Pin d'entree pour senseurs de courant
-#define PIN_LECTURE_0   A0   // Pin analogue
-#define PIN_LECTURE_1   A2   // Pin analogue
-#define PIN_LECTURE_2   A4   // Pin analogue
-
-// relais de démarrage collecteur de poussière
-#define DC_RELAIS_NO 8       // Pin relais NC
-#define DC_RELAIS_NC 9       // Pin relais NC
-
-// pour sélecteur binaire d'affichage
-#define SELECT_0  10       // pin 1
-#define SELECT_1  11       // pin 2
-#define SELECT_2  12       // pin 3
-
-
-
-// pour module LED 7 segments
-#define  LED_PIN_CLK  2    // CLK pin  pour LED GND
-#define  LED_PIN_DIO  3    // DIO pin  pour LED GND
-
-// démarrage manuel
-#define MODE_MANUEL  4        // démarrage manuel
-
-// voyant lumineux
-// OUTIL 1, OUTIL 2, OUTIL 3
-byte Affiche[] = {5, 6, 7};
-
-// Nombre d'outils monitorés
-const int NOMBRE_OUTILS = 3;
-
-// variables globales pour mesure du temps d'utilisation. Initialiser selon nombre d'outil
-unsigned long tempsEcoule[NOMBRE_OUTILS] = {0, 0, 0}; // en millisecondes
-
-//calcul
-int secondes[NOMBRE_OUTILS] = {0, 0, 0};
-int minutes[NOMBRE_OUTILS] = {0, 0, 0};
-
-//cumule
-long minutesTotales[NOMBRE_OUTILS] = {0, 0, 0};
-int minutesNouv[NOMBRE_OUTILS] = {0, 0, 0};
-int secondesNouv[NOMBRE_OUTILS] = {0, 0, 0};
-
-//Statut des boutons et outils
-boolean detectionPouvoir[NOMBRE_OUTILS] = {0, 0, 0};
-boolean collecteurEstOn = 0;
-
-//Temporisation du collecteur de poussiere
-int DC_spindown = 5000;
-int DC_spinUP = 10;
-
-// niveau de démarrage de l'outil
-double ampThreshold = 2.50;
-
-
-// pour chase light indicateur démarrage manuel
-int ledDelay(65);
-int direction = 1;
-int currentLed;
-unsigned long changeTime;
-
-// instance du module LED 7 segments
-TM1637   tm(LED_PIN_CLK, LED_PIN_DIO);
-
-// Creer les instances du moniteur de courant EnergyMonitor
-EnergyMonitor emon0;
-EnergyMonitor emon1;
-EnergyMonitor emon2;
 
 void setup() {
   //initialisation des pins
@@ -140,8 +71,6 @@ void loop() {
 
   bool interrupManuel  = verif_Interrup(MODE_MANUEL);
 
-  chase(interrupManuel);
-
   for (int i = 0; i < NOMBRE_OUTILS; i++) {
     if (verifieChangeCourant(i)) {
       outilActif[i] = true;
@@ -153,7 +82,10 @@ void loop() {
       lumieresTemoins(true, i);
     }
   }
+  
+  chase(interrupManuel,outilActif);
 
+  
   //démarre l'aspirateur selon l'état de n'importe quel outil ou du démarrage manuel.
   if (outilActif[0] || outilActif[1] || outilActif[2] || interrupManuel ) {
 
@@ -347,8 +279,8 @@ void fermeCollecteurPoussiere() {
 }
 
 
-//Calculer le temps d'opération écoulé
-//Utilise la variable globale tempsEcoule initialisée à la détection de l'outil
+// Calculer le temps d'opération écoulé
+// Utilise la variable globale tempsEcoule initialisée à la détection de l'outil
 void calculTempsOutil(int outil) {
 
   if (tempsEcoule[outil] > 0 )
@@ -361,8 +293,8 @@ void calculTempsOutil(int outil) {
 
 
 
-//Totalise le temps global d'opération
-//Mémorise dans EEPROM le nombre global de minutes pour garder les données du compteur en cas de panne de courant.
+// Totalise le temps global d'opération
+// Mémorise dans EEPROM le nombre global de minutes pour garder les données du compteur en cas de panne de courant.
 void cumulTempsOutil(int outil)
 {
   //test arbitraire pour s'assurer qu'on est dans une mesure distincte
@@ -471,8 +403,8 @@ void lumieresTemoins(bool bouton, int outil)
   }
 }
 
-
-void chase(bool interrupManuel) {
+// Pour indicateur démarrage manuel
+void chase(bool interrupManuel,bool outilActif[]) {
 
   if (interrupManuel) {
 
@@ -480,7 +412,6 @@ void chase(bool interrupManuel) {
     {
       changeTime = millis();
       changeLed();
-
     }
 
   }
@@ -488,17 +419,21 @@ void chase(bool interrupManuel) {
   {
     for ( int i = 0; i < NOMBRE_OUTILS; i++)
   {
+   if(!outilActif[i]){
     digitalWrite(Affiche[i], LOW);
+   }
   }
     }
 }
 
+//Effet de séquenceur de lumière
 void changeLed()
 {
   for ( int i = 0; i < NOMBRE_OUTILS; i++)
   {
     digitalWrite(Affiche[i], LOW);
   }
+  
   digitalWrite(Affiche[currentLed], HIGH);
   currentLed += direction;
   if (currentLed == 2)
