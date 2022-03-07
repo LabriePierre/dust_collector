@@ -35,9 +35,6 @@ void setup() {
   afficheNombre(8888);    // Affiche 8888 pour validation de tous les segments
 
 
-  Serial.begin(9600);
-  while (!Serial) ; // attente de l'ouverture du port série Arduino
-
   //  remise à zéro du compteur pour montage initial
   //  ecritDansEEPROM(100, minutesTotales[0]);
   //  ecritDansEEPROM(200, minutesTotales[0]);
@@ -50,14 +47,15 @@ void setup() {
   minutesTotales[2] = lectureDeEEPROM(300);
 
 
-
   // configuration Emon pour module Hall SCT 013-30
   // Current: input pin, calibration.
   emon0.current(PIN_LECTURE_0, 60);
   emon1.current(PIN_LECTURE_1, 60);
   emon2.current(PIN_LECTURE_2, 60);
 
-  // pour stabilisation du voltage
+  
+  Serial.begin(9600);
+  // pour stabilisation du voltage et attente de l'ouverture du port série Arduino
   delay(5000);
 }
 
