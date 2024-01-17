@@ -117,7 +117,7 @@ void loop() {
 
 }
 
-//vériifie les position du sélecteur binaire
+//vérifie les positions du sélecteur binaire
 //Retourne le numéro correspondant de l'affichage du sélecteur
 int analyseSelecteurBinaire()
 {
