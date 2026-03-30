@@ -1,0 +1,512 @@
+// Code de contrôle d'aspirateur couplé à des outils tel un planeur et dégauchisseuse.
+// Cumule les nombre d'heure de fonctionnement de chaque appareil.
+
+// Pierre Labrie, 2022/01/28, Licence GNU GPL V3
+
+#include "variables.h"  // librairie pour  Emon
+
+
+void setup() {
+  //initialisation des pins
+  pinMode(DC_RELAIS_NO, OUTPUT);
+  pinMode(DC_RELAIS_NC, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  pinMode(Affiche[0], OUTPUT);
+  pinMode(Affiche[1], OUTPUT);
+  pinMode(Affiche[2], OUTPUT);
+
+  digitalWrite(DC_RELAIS_NO, HIGH);
+  digitalWrite(DC_RELAIS_NC, HIGH);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  //pins du sélecteur binaire
+  pinMode(SELECT_0, INPUT_PULLUP);
+  pinMode(SELECT_1, INPUT_PULLUP);
+  pinMode(SELECT_2, INPUT_PULLUP);
+
+  // Interrupteur du mode manuel
+  pinMode(MODE_MANUEL, INPUT_PULLUP);
+
+
+
+  tm.init();            // initialise l'affichage LED 7 segments
+  tm.set(2);            // ajuste la luminosité (1 à 7)
+  afficheNombre(8888);  // Affiche 8888 pour validation de tous les segments
+
+
+  //  remise à zéro du compteur pour montage initial
+  //  ecritDansEEPROM(100, minutesTotales[0]);
+  //  ecritDansEEPROM(200, minutesTotales[0]);
+  //  ecritDansEEPROM(300, minutesTotales[0]);
+
+  // lecture du dernier état avant une panne électrique
+  // réinitialise les variables globales
+  minutesTotales[0] = lectureDeEEPROM(100);
+  minutesTotales[1] = lectureDeEEPROM(200);
+  minutesTotales[2] = lectureDeEEPROM(300);
+
+
+  // configuration Emon pour module Hall SCT 013-30
+  // Current: input pin, calibration.
+  emon0.current(PIN_LECTURE_0, 60);
+  emon1.current(PIN_LECTURE_1, 60);
+  emon2.current(PIN_LECTURE_2, 60);
+
+
+  Serial.begin(9600);
+#if DLEVEL > 5
+  Serial.setDebugOutput(true);
+#endif
+
+  // pour stabilisation du voltage et attente de l'ouverture du port série Arduino
+  delay(5000);
+
+  // Préchauffage EmonLib — converge le filtre DC offset avant loop()
+  // Jeter les premières lectures le temps que offsetI se stabilise
+#if DLEVEL > 5
+  Serial.println("Stabilisation EmonLib...");
+#endif
+  const int NB_CYCLES_CHAUFFE = 20;  // 20 cycles suffisent
+  for (int i = 0; i < NB_CYCLES_CHAUFFE; i++) {
+    emon0.calcIrms(465);
+    emon1.calcIrms(465);
+    emon2.calcIrms(465);
+  }
+#if DLEVEL > 5
+  Serial.println("Stabilisation terminée");
+#endif
+  // Ici les valeurs sont fiables
+}
+
+void loop() {
+
+
+  //verifie le fonctionnement de tous les outils
+  bool outilActif[NOMBRE_OUTILS] = { 0, 0, 0 };
+
+  bool interrupManuel = verif_Interrup(MODE_MANUEL);
+
+  for (int i = 0; i < NOMBRE_OUTILS; i++) {
+    if (verifieChangeCourant(i)) {
+      outilActif[i] = true;
+
+      if (detectionPouvoir[i] == false) {
+        tempsEcoule[i] = millis();
+      }
+      detectionPouvoir[i] = true;
+      lumieresTemoins(true, i);
+    }
+  }
+
+  chase(interrupManuel, outilActif);
+
+
+  //démarre l'aspirateur selon l'état de n'importe quel outil ou du démarrage manuel.
+  if (outilActif[0] || outilActif[1] || outilActif[2] || interrupManuel) {
+
+    if (collecteurEstOn == false) {
+      delay(DC_spinUP);
+      ouvreCollecteurPoussiere();
+    }
+  } else {
+    if (collecteurEstOn == true) {
+      delay(DC_spindown);
+      fermeCollecteurPoussiere();
+    }
+  }
+
+  //calcul du temps écoulé par outil et cumule les minutes totales dans le registre
+  for (int i = 0; i < NOMBRE_OUTILS; i++) {
+
+    if (detectionPouvoir[i] == true && outilActif[i] == false) {
+
+      calculTempsOutil(i);
+      detectionPouvoir[i] = false;
+      lumieresTemoins(false, i);
+      cumulTempsOutil(i);
+    }
+  }
+
+  debug();
+
+  // Affiche les heures sur led selon le sélecteur
+  AfficheSelection(analyseSelecteurBinaire());
+}
+
+//vérifie les positions du sélecteur binaire
+//Retourne le numéro correspondant de l'affichage du sélecteur
+int analyseSelecteurBinaire() {
+  if (!verif_Interrup(SELECT_0) && verif_Interrup(SELECT_1) && verif_Interrup(SELECT_2)) {
+    return 6;
+  }
+  if (verif_Interrup(SELECT_0) && !verif_Interrup(SELECT_1) && verif_Interrup(SELECT_2)) {
+    return 5;
+  }
+  if (!verif_Interrup(SELECT_0) && !verif_Interrup(SELECT_1) && verif_Interrup(SELECT_2)) {
+    return 4;
+  }
+  if (verif_Interrup(SELECT_0) && verif_Interrup(SELECT_1) && !verif_Interrup(SELECT_2)) {
+    return 3;
+  }
+  if (!verif_Interrup(SELECT_0) && verif_Interrup(SELECT_1) && !verif_Interrup(SELECT_2)) {
+    return 2;
+  }
+  if (verif_Interrup(SELECT_0) && !verif_Interrup(SELECT_1) && !verif_Interrup(SELECT_2)) {
+    return 1;
+  }
+  if (!verif_Interrup(SELECT_0) && !verif_Interrup(SELECT_1) && !verif_Interrup(SELECT_2)) {
+    return 0;
+  }
+  return 0;
+}
+
+
+// AFFICHE[] sur le LED la valeur en minutes ou heures pour l'outil sélectionné
+void AfficheSelection(int selection) {
+  switch (selection) {
+
+    case 0:
+      afficheNombre(8888);
+      break;
+    case 1:
+      afficheNombre(minutesTotales[0] / 60);
+      break;
+    case 2:
+      afficheNombre(minutesTotales[1] / 60);
+      break;
+    case 3:
+      afficheNombre(minutesTotales[2] / 60);
+      break;
+    case 4:
+      afficheNombre(minutesTotales[0]);
+      break;
+    case 5:
+      afficheNombre(minutesTotales[1]);
+      break;
+    case 6:
+      afficheNombre(minutesTotales[2]);
+      break;
+
+    default:
+      afficheNombre(8888);
+  }
+}
+
+//affichage du nombre de minutes ou heures dans le led 7 segments
+// supporte un nombre de plus de 4 chiffres en omettant la partie de gauche
+void afficheNombre(long numNouv) {
+
+  tm.display(3, numNouv % 10);
+  tm.display(2, numNouv / 10 % 10);
+  tm.display(1, numNouv / 100 % 10);
+  tm.display(0, numNouv / 1000 % 10);
+}
+
+
+// Vérification du passage de courant dans le module Hall
+// Vérifie un des trois outils prévus
+// méthode privée
+boolean _verifieChangeCourant(int outil) {
+
+  double Irms = 0;
+  // Calculer Irms seulement
+  switch (outil) {
+
+    case 0:
+      Irms = emon0.calcIrms(465);  // basé sur 5 échantillons
+      break;
+
+    case 1:
+      Irms = emon1.calcIrms(465);
+      break;
+
+    case 2:
+      Irms = emon2.calcIrms(465);
+      break;
+
+    default:
+      return false;
+  }
+
+
+  // Période de stabilisation au démarrage — ignorer les lectures
+  if (!sondeStabilisee[outil]) {
+    if (tempsStabilisation[outil] == 0) {
+      tempsStabilisation[outil] = millis();  // démarre le chrono
+    }
+    if (millis() - tempsStabilisation[outil] < DELAI_STABILISATION) {
+
+#if DLEVEL > 5
+      Serial.print("Stabilisation outil ");
+      Serial.print(outil);
+      Serial.print(" Irms: ");
+      Serial.println(Irms);
+#endif
+
+      return false;  // ignorer pendant la stabilisation
+    }
+    sondeStabilisee[outil] = true;  // stabilisation terminée
+#if DLEVEL > 5
+    Serial.print("Stabilisation terminée ");
+#endif
+  }
+
+  if (Irms > ampThreshold) {
+    return true;
+  }
+  return false;
+}
+
+
+
+
+// Vérification du passage de courant — version non-bloquante
+// Doit être appelée à chaque itération de loop()
+// Le résultat est disponible dans resultatDebounce[outil]
+boolean verifieChangeCourant(int outil) {
+
+  switch (etatDebounce[outil]) {
+
+    case LECTURE_A:
+      valeurA[outil] = _verifieChangeCourant(outil);
+      debutAttenteDebounce[outil] = millis();
+      etatDebounce[outil] = ATTENTE_B;
+      break;
+
+    case ATTENTE_B:
+      // Attente non-bloquante — on reviendra au prochain cycle de loop()
+      if (millis() - debutAttenteDebounce[outil] >= DEBOUNCE_DELAY) {
+        etatDebounce[outil] = LECTURE_B;
+      }
+      break;
+
+    case LECTURE_B:
+      valeurB[outil] = _verifieChangeCourant(outil);
+      if (valeurA[outil] == valeurB[outil]) {
+        debutAttenteDebounce[outil] = millis();
+        etatDebounce[outil] = ATTENTE_C;
+      } else {
+        // Lectures différentes — recommencer depuis le début
+        etatDebounce[outil] = LECTURE_A;
+        resultatDebounce[outil] = false;
+      }
+      break;
+
+    case ATTENTE_C:
+      if (millis() - debutAttenteDebounce[outil] >= DEBOUNCE_DELAY) {
+        etatDebounce[outil] = LECTURE_C;
+      }
+      break;
+
+    case LECTURE_C:
+      if (valeurA[outil] == _verifieChangeCourant(outil)) {
+        resultatDebounce[outil] = valeurA[outil];  // ✅ Résultat stable confirmé
+      } else {
+        resultatDebounce[outil] = false;
+      }
+      // Réinitialise pour le prochain cycle
+      etatDebounce[outil] = LECTURE_A;
+      break;
+  }
+    // pour debug
+#if DLEVEL > 5
+  Serial.print("outil: ");
+  Serial.println(outil);
+  Serial.print("resultatDebounce: ");
+  if (resultatDebounce[outil]) {
+    Serial.println("true");
+  } else {
+    Serial.println("false");
+  }
+#endif
+
+
+  return resultatDebounce[outil];
+}
+
+
+// Ouvre aspirateur
+// contact momentané seulement
+void ouvreCollecteurPoussiere() {
+#if DLEVEL > 5
+  Serial.println("ouvreCollecteurPoussiere");
+#endif
+  digitalWrite(DC_RELAIS_NO, LOW);
+  delay(1500);
+  digitalWrite(DC_RELAIS_NO, HIGH);
+  digitalWrite(LED_BUILTIN, HIGH);
+  collecteurEstOn = true;
+}
+
+// Ferme aspirateur
+// contact momentané seulement
+void fermeCollecteurPoussiere() {
+#if DLEVEL > 5
+  Serial.println("fermeCollecteurPoussiere");
+#endif
+  digitalWrite(DC_RELAIS_NC, LOW);
+  delay(1500);
+  digitalWrite(DC_RELAIS_NC, HIGH);
+  digitalWrite(LED_BUILTIN, LOW);
+  collecteurEstOn = false;
+}
+
+
+// Calculer le temps d'opération écoulé
+// Utilise la variable globale tempsEcoule initialisée à la détection de l'outil
+void calculTempsOutil(int outil) {
+  if (tempsEcoule[outil] > 0) {
+    unsigned long elapsed = millis() - tempsEcoule[outil];  // toujours correct
+    secondes[outil] = elapsed / 1000;
+    minutes[outil] = secondes[outil] / 60;
+    secondes[outil] %= 60;
+  }
+}
+
+
+// Totalise le temps global d'opération
+// Mémorise dans EEPROM le nombre global de minutes pour garder les données du compteur en cas de panne de courant.
+void cumulTempsOutil(int outil) {
+  //test arbitraire pour s'assurer qu'on est dans une mesure distincte
+  if (!((minutesNouv[outil] + secondesNouv[outil]) == (minutes[outil] + secondes[outil]))) {
+
+    //cumule les heures pour un outil
+    minutesTotales[outil] = minutesTotales[outil] + minutes[outil];
+
+    //mise en mémoire des repères pour prochaine itération
+    minutesNouv[outil] = minutes[outil];
+    secondesNouv[outil] = secondes[outil];
+
+
+    // enregiste à toutes les fermetures d'un outil dans la mémoire correspondante
+    if (minutesTotales[outil] > 0) {
+
+      switch (outil) {
+        case 0:
+          ecritDansEEPROM(100, minutesTotales[outil]);
+          ;
+          break;
+
+        case 1:
+          ecritDansEEPROM(200, minutesTotales[outil]);
+          ;
+          break;
+
+        case 2:
+          ecritDansEEPROM(300, minutesTotales[outil]);
+          ;
+          break;
+      }
+    }
+  }
+}
+
+//Écriture en mémoire du total d'heures cumulées
+void ecritDansEEPROM(int address, long number) {
+  EEPROM.update(address, (number >> 24) & 0xFF);
+  EEPROM.update(address + 1, (number >> 16) & 0xFF);
+  EEPROM.update(address + 2, (number >> 8) & 0xFF);
+  EEPROM.update(address + 3, number & 0xFF);
+}
+
+
+
+//Lecture de la mémoire du total d'heures cumulées
+long lectureDeEEPROM(int address) {
+  return ((long)EEPROM.read(address) << 24) + ((long)EEPROM.read(address + 1) << 16) + ((long)EEPROM.read(address + 2) << 8) + (long)EEPROM.read(address + 3);
+}
+
+
+// validation du statut d'un interrupteur
+bool verif_Interrup(int pin) {
+  bool retour = false;
+
+  if (digitalRead(pin) == LOW) {
+    retour = true;
+  } else {
+    retour = false;
+  }
+
+  return retour;
+}
+
+// controle les lumières témoins pour indiquer le fonctionnement de l'outil
+void lumieresTemoins(bool bouton, int outil) {
+
+  switch (outil) {
+
+    case 0:
+      if (bouton) {
+        digitalWrite(Affiche[0], HIGH);
+      } else {
+        digitalWrite(Affiche[0], LOW);
+      }
+      break;
+
+    case 1:
+      if (bouton) {
+        digitalWrite(Affiche[1], HIGH);
+      } else {
+        digitalWrite(Affiche[1], LOW);
+      }
+      break;
+
+    case 2:
+      if (bouton) {
+        digitalWrite(Affiche[2], HIGH);
+      } else {
+        digitalWrite(Affiche[2], LOW);
+      }
+      break;
+  }
+}
+
+// Pour indicateur démarrage manuel
+void chase(bool interrupManuel, bool outilActif[]) {
+
+  if (interrupManuel) {
+
+    if ((millis() - changeTime) > ledDelay) {
+      changeTime = millis();
+      changeLed();
+    }
+
+  } else {
+    for (int i = 0; i < NOMBRE_OUTILS; i++) {
+      if (!outilActif[i]) {
+        digitalWrite(Affiche[i], LOW);
+      }
+    }
+  }
+}
+
+//Effet de séquenceur de lumière
+void changeLed() {
+  for (int i = 0; i < NOMBRE_OUTILS; i++) {
+    digitalWrite(Affiche[i], LOW);
+  }
+
+  digitalWrite(Affiche[currentLed], HIGH);
+  currentLed += direction;
+  if (currentLed == 2) {
+    direction = -1;
+  }
+  if (currentLed == 0) {
+    direction = 1;
+  }
+}
+
+void debug() {
+//effectuer l'affichage selon le sélecteur
+#if DLEVEL > 5
+  for (int i = 0; i < NOMBRE_OUTILS; i++) {
+    Serial.print("heure/minutes ");
+    Serial.print(i);
+    Serial.print(" : ");
+    Serial.print(minutesTotales[i] / 60);
+    Serial.print("/");
+    Serial.println(minutesTotales[i]);
+#endif
+  }
+}
