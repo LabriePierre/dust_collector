@@ -507,6 +507,6 @@ void debug() {
     Serial.print(minutesTotales[i] / 60);
     Serial.print("/");
     Serial.println(minutesTotales[i]);
-#endif
   }
+#endif
 }
