@@ -65,12 +65,12 @@ double SEUIL_MAX = 30.0; //seuil maximun au delà =  sonde débranchée
 
 bool sondeStabilisee[NOMBRE_OUTILS]        = {false, false, false};
 unsigned long tempsStabilisation[NOMBRE_OUTILS] = {0, 0, 0};
-const unsigned long DELAI_STABILISATION    = 5000; // 5 sec de stabilisation
+const unsigned long DELAI_STABILISATION    = 1000; // 1 sec de stabilisation
 
 
 
 // pour chase light indicateur démarrage manuel
-int ledDelay(65);
+unsigned long  ledDelay(65);
 int direction = 1;
 int currentLed;
 unsigned long changeTime = 0;
